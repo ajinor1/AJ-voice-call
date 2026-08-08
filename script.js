@@ -1,6 +1,6 @@
 // ===== 設定 =====
-const supabaseUrl = 'https://your-project.supabase.co';  // ← あなたのURLに変更
-const supabaseKey = 'your-public-anon-key';              // ← あなたのキーに変更
+const supabaseUrl = 'https://jkhmlkdehtrdvkdyygzi.supabase.co/rest/v1/';  // ← あなたのURLに変更
+const supabaseKey = 'sb_publishable_se7oqUzI7Pc5aGKAj2RQ1w_fDHTuZZW';              // ← あなたのキーに変更
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 // ===== 状態 =====
