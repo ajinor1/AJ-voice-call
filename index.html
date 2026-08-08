@@ -4,19 +4,75 @@
     <meta charset="UTF-8">
     <title>音声通話</title>
     <style>
-        body { font-family: Arial; text-align: center; padding: 50px; }
-        input, button { padding: 10px; margin: 5px; font-size: 16px; }
-        #status { color: #666; margin: 20px; }
+        body {
+            font-family: Arial;
+            text-align: center;
+            padding: 50px;
+            background: #f0f2f5;
+        }
+        .container {
+            max-width: 400px;
+            margin: 0 auto;
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        input {
+            width: 70%;
+            padding: 12px;
+            font-size: 16px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            margin-bottom: 15px;
+        }
+        button {
+            width: 100%;
+            padding: 15px;
+            font-size: 18px;
+            background: #0066cc;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+        button:hover:not(:disabled) {
+            background: #0052a3;
+        }
+        button:disabled {
+            background: #999;
+            cursor: not-allowed;
+        }
+        #status {
+            color: #666;
+            margin: 20px 0;
+            min-height: 24px;
+        }
+        #myId {
+            font-weight: bold;
+            color: #0066cc;
+            font-size: 14px;
+        }
+        .hint {
+            color: #999;
+            font-size: 12px;
+            margin-top: 10px;
+        }
     </style>
 </head>
 <body>
-    <h1>🎤 音声通話</h1>
-    <div>
+    <div class="container">
+        <h1>🎤 音声通話</h1>
+        
         <input type="text" id="roomId" placeholder="ルームID" value="room123">
-        <button onclick="createRoom()">ルーム作成</button>
-        <button onclick="joinRoom()">参加</button>
+        
+        <button id="connectBtn" onclick="connect()">🔗 接続</button>
+        
+        <div id="status">準備完了</div>
+        <div id="myId">未接続</div>
+        <div class="hint">同じルームIDを相手と共有してください</div>
     </div>
-    <div id="status">準備完了</div>
     
     <script src="https://unpkg.com/peerjs@1.5.1/dist/peerjs.min.js"></script>
     <script src="app.js"></script>
