@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>音声通話</title>
+    <style>
+        body { font-family: Arial; text-align: center; padding: 50px; }
+        input, button { padding: 10px; margin: 5px; font-size: 16px; }
+        #status { color: #666; margin: 20px; }
+    </style>
+</head>
+<body>
+    <h1>🎤 音声通話</h1>
+    <div>
+        <input type="text" id="roomId" placeholder="ルームID" value="room123">
+        <button onclick="createRoom()">ルーム作成</button>
+        <button onclick="joinRoom()">参加</button>
+    </div>
+    <div id="status">準備完了</div>
+    
+    <script src="https://unpkg.com/peerjs@1.5.1/dist/peerjs.min.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
