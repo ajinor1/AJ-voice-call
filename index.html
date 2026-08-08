@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>音声通話 - シンプル版</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+            text-align: center;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        .container {
+            max-width: 420px;
+            width: 100%;
+            margin: 0 auto;
+            background: rgba(255,255,255,0.95);
+            padding: 35px 30px;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            backdrop-filter: blur(10px);
+        }
+        h1 {
+            font-size: 26px;
+            margin-bottom: 8px;
+            color: #1a1a2e;
+        }
+        .subtitle {
+            color: #666;
+            font-size: 14px;
+            margin-bottom: 25px;
+        }
+        .my-id-box {
+            background: linear-gradient(135deg, #f5f7fa 0%, #e8ecf1 100%);
+            padding: 15px;
+            border-radius: 12px;
+            margin: 15px 0;
+            border: 2px dashed #667eea;
+        }
+        .my-id-box .label {
+            font-size: 12px;
+            color: #888;
+            display: block;
+            margin-bottom: 5px;
+        }
+        .my-id-box .id {
+            font-size: 14px;
+            font-weight: bold;
+            color: #333;
+            word-break: break-all;
+            font-family: 'Courier New', monospace;
+            background: white;
+            padding: 8px 12px;
+            border-radius: 8px;
+            display: inline-block;
+        }
+        .my-id-box .copy-btn {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 5px 15px;
+            border-radius: 5px;
+            font-size: 12px;
+            cursor: pointer;
+            margin-left: 8px;
+            transition: background 0.3s;
+        }
+        .my-id-box .copy-btn:hover {
+            background: #5a6fd6;
+        }
+        .input-group {
+            display: flex;
+            gap: 10px;
+            margin: 15px 0;
+        }
+        input {
+            flex: 1;
+            padding: 12px 15px;
+            font-size: 16px;
+            border: 2px solid #ddd;
+            border-radius: 10px;
+            text-align: center;
+            transition: border-color 0.3s;
+        }
+        input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        input::placeholder {
+            color: #aaa;
+        }
+        .btn-group {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        button {
+            padding: 14px;
+            font-size: 16px;
+            font-weight: bold;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none !important;
+        }
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        .btn-primary:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(102, 126, 234, 0.4);
+        }
+        .btn-danger {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            color: white;
+        }
+        .btn-danger:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(245, 87, 108, 0.4);
+        }
+        .btn-success {
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            color: white;
+        }
+        .btn-success:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(79, 172, 254, 0.4);
+        }
+        .btn-secondary {
+            background: #e8ecf1;
+            color: #333;
+        }
+        .btn-secondary:hover:not(:disabled) {
+            background: #d5d9e0;
+        }
+        #status {
+            color: #666;
+            margin: 15px 0 10px;
+            min-height: 28px;
+            font-size: 14px;
+            font-weight: 500;
+            padding: 10px;
+            border-radius: 8px;
+            background: #f8f9fa;
+        }
+        #status.connected {
+            color: #00b894;
+            background: #e0f7f1;
+        }
+        #status.waiting {
+            color: #fdcb6e;
+            background: #fff3e0;
+        }
+        #status.error {
+            color: #e17055;
+            background: #fde8e4;
+        }
+        .audio-visual {
+            margin: 15px 0;
+            padding: 15px;
+            background: #e8f4fd;
+            border-radius: 12px;
+            display: none;
+            border: 2px solid #b8d4e8;
+        }
+        .audio-visual.active {
+            display: block;
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0% { border-color: #b8d4e8; }
+            50% { border-color: #667eea; }
+            100% { border-color: #b8d4e8; }
+        }
+        .volume-bar {
+            height: 8px;
+            background: #ddd;
+            border-radius: 4px;
+            overflow: hidden;
+            margin-top: 8px;
+        }
+        .volume-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #667eea, #00f2fe);
+            width: 0%;
+            transition: width 0.1s;
+            border-radius: 4px;
+        }
+        .call-info {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 13px;
+            color: #666;
+            margin-top: 5px;
+        }
+        .hint {
+            color: #999;
+            font-size: 12px;
+            margin-top: 20px;
+            line-height: 1.8;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 10px;
+            border: 1px solid #eee;
+        }
+        .hint strong {
+            color: #667eea;
+        }
+        .step-number {
+            display: inline-block;
+            width: 22px;
+            height: 22px;
+            background: #667eea;
+            color: white;
+            border-radius: 50%;
+            font-size: 12px;
+            line-height: 22px;
+            text-align: center;
+            margin-right: 6px;
+            font-weight: bold;
+        }
+        .badge {
+            display: inline-block;
+            padding: 3px 12px;
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: bold;
+            margin-left: 5px;
+        }
+        .badge.online {
+            background: #00b894;
+            color: white;
+        }
+        .badge.offline {
+            background: #e17055;
+            color: white;
+        }
+        .badge.waiting {
+            background: #fdcb6e;
+            color: #333;
+        }
+        .badge.calling {
+            background: #667eea;
+            color: white;
+            animation: blink 1s infinite;
+        }
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        @media (max-width: 480px) {
+            .container {
+                padding: 20px;
+            }
+            h1 {
+                font-size: 22px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎤 音声通話</h1>
+        <p class="subtitle">シンプルP2Pボイスチャット</p>
+        
+        <!-- 自分のID表示 -->
+        <div class="my-id-box">
+            <span class="label">📱 あなたのID</span>
+            <div>
+                <span class="id" id="myId">読み込み中...</span>
+                <button class="copy-btn" id="copyIdBtn" onclick="copyMyId()">コピー</button>
+            </div>
+        </div>
+        
+        <!-- 相手のID入力 -->
+        <div class="input-group">
+            <input type="text" id="targetId" placeholder="相手のIDを入力" maxlength="50">
+        </div>
+        
+        <!-- ボタン -->
+        <div class="btn-group">
+            <button id="callBtn" class="btn-primary" disabled>📞 発信</button>
+            <button id="disconnectBtn" class="btn-danger" style="display:none;">🔌 切断</button>
+        </div>
+        
+        <!-- ステータス -->
+        <div id="status">🔄 準備中...</div>
+        
+        <!-- 音声レベル -->
+        <div class="audio-visual" id="audioVisual">
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+                <span>🔊 相手の音声</span>
+                <span id="volumePercent" style="font-size:12px; color:#666;">0%</span>
+            </div>
+            <div class="volume-bar">
+                <div class="volume-fill" id="volumeFill"></div>
+            </div>
+            <div class="call-info">
+                <span id="callStatus">通話中</span>
+                <span id="callDuration">00:00</span>
+            </div>
+        </div>
+        
+        <!-- 使い方 -->
+        <div class="hint">
+            <div><span class="step-number">1</span> あなたのIDを相手に伝えてください</div>
+            <div><span class="step-number">2</span> 相手のIDを入力して「発信」</div>
+            <div><span class="step-number">3</span> 相手が応答すれば通話開始！</div>
+            <div style="margin-top:8px; font-size:11px; color:#bbb;">
+                💡 ブラウザのマイク許可が必要です
+            </div>
+        </div>
+    </div>
+    
+    <!-- PeerJS SDK -->
+    <script src="https://unpkg.com/peerjs@1.5.1/dist/peerjs.min.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
