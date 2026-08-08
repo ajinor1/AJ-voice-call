@@ -67,6 +67,29 @@
             margin-top: 15px;
             line-height: 1.5;
         }
+        .audio-visual {
+            margin: 20px 0;
+            padding: 15px;
+            background: #e8f4fd;
+            border-radius: 8px;
+            display: none;
+        }
+        .audio-visual.active {
+            display: block;
+        }
+        .volume-bar {
+            height: 8px;
+            background: #ddd;
+            border-radius: 4px;
+            overflow: hidden;
+            margin-top: 8px;
+        }
+        .volume-fill {
+            height: 100%;
+            background: #0066cc;
+            width: 0%;
+            transition: width 0.1s;
+        }
     </style>
 </head>
 <body>
@@ -75,18 +98,28 @@
         
         <input type="text" id="roomId" placeholder="ルームID" value="room123">
         
-        <!-- onclickを削除して、idだけにする -->
         <button id="connectBtn" disabled>🔗 接続</button>
         
         <div id="status">接続準備中...</div>
         <div id="myId">読み込み中...</div>
+        
+        <div class="audio-visual" id="audioVisual">
+            <div>🔊 相手の音声レベル</div>
+            <div class="volume-bar">
+                <div class="volume-fill" id="volumeFill"></div>
+            </div>
+        </div>
+        
         <div class="hint">
             💡 同じルームIDを相手と共有してください<br>
-            🔒 マイクの許可が必要です
+            🔒 マイクの許可が必要です<br>
+            👥 2人まで同時接続可能
         </div>
     </div>
     
-    <!-- スクリプトは一番下にまとめる -->
+    <!-- Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
     <script src="https://unpkg.com/peerjs@1.5.1/dist/peerjs.min.js"></script>
     <script src="app.js"></script>
 </body>
