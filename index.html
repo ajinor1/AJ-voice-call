@@ -1,1 +1,265 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>シンプル通話</title>
+    <script src="https://cdn.jsdelivr.net/npm/simple-peer@9.11.1/simplepeer.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #0a0a0a;
+            color: white;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        /* ヘッダー */
+        #header {
+            padding: 15px 20px;
+            background: rgba(20, 20, 20, 0.95);
+            border-bottom: 1px solid #333;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-shrink: 0;
+        }
+        
+        #header h1 {
+            font-size: 18px;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+        }
+        
+        #header .status {
+            font-size: 13px;
+            color: #888;
+        }
+        
+        #header .status.online {
+            color: #4ade80;
+        }
+        
+        /* コントロール */
+        #controls {
+            padding: 12px 20px;
+            background: rgba(20, 20, 20, 0.95);
+            border-bottom: 1px solid #333;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            flex-wrap: wrap;
+            flex-shrink: 0;
+        }
+        
+        #controls input {
+            padding: 8px 14px;
+            border: 1px solid #444;
+            border-radius: 6px;
+            background: #1a1a1a;
+            color: white;
+            font-size: 14px;
+            flex: 1;
+            min-width: 120px;
+        }
+        
+        #controls input:focus {
+            outline: none;
+            border-color: #4ade80;
+        }
+        
+        #controls button {
+            padding: 8px 20px;
+            border: none;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            white-space: nowrap;
+        }
+        
+        #controls button:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+        
+        .btn-join {
+            background: #4ade80;
+            color: #0a0a0a;
+        }
+        
+        .btn-join:hover:not(:disabled) {
+            background: #22c55e;
+        }
+        
+        .btn-leave {
+            background: #ef4444;
+            color: white;
+        }
+        
+        .btn-leave:hover:not(:disabled) {
+            background: #dc2626;
+        }
+        
+        .btn-mute {
+            background: #333;
+            color: white;
+            padding: 8px 14px;
+        }
+        
+        .btn-mute:hover:not(:disabled) {
+            background: #444;
+        }
+        
+        .btn-mute.muted {
+            background: #ef4444;
+        }
+        
+        /* 映像エリア */
+        #video-grid {
+            flex: 1;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 8px;
+            padding: 8px;
+            background: #0a0a0a;
+            overflow-y: auto;
+            align-content: start;
+        }
+        
+        .video-container {
+            position: relative;
+            background: #1a1a1a;
+            border-radius: 10px;
+            overflow: hidden;
+            aspect-ratio: 4/3;
+            min-height: 150px;
+        }
+        
+        .video-container video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            background: #111;
+        }
+        
+        .video-container .label {
+            position: absolute;
+            bottom: 8px;
+            left: 8px;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 3px 10px;
+            border-radius: 12px;
+            font-size: 12px;
+            color: #fff;
+            backdrop-filter: blur(4px);
+        }
+        
+        .video-container .label.local {
+            border: 1px solid #4ade80;
+        }
+        
+        /* 参加者数表示 */
+        #participant-count {
+            font-size: 13px;
+            color: #888;
+            padding: 0 10px;
+        }
+        
+        /* スマホ対応 */
+        @media (max-width: 600px) {
+            #controls {
+                flex-wrap: wrap;
+            }
+            #controls input {
+                min-width: 80px;
+                font-size: 13px;
+            }
+            #controls button {
+                font-size: 13px;
+                padding: 6px 14px;
+            }
+            #video-grid {
+                grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+                gap: 4px;
+                padding: 4px;
+            }
+            .video-container {
+                min-height: 100px;
+                border-radius: 6px;
+            }
+            #header h1 {
+                font-size: 15px;
+            }
+        }
+        
+        /* 空の状態 */
+        #empty-state {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            color: #555;
+            font-size: 16px;
+            gap: 8px;
+        }
+        
+        #empty-state .icon {
+            font-size: 48px;
+            opacity: 0.3;
+        }
+        
+        #video-grid:empty + #empty-state {
+            display: flex;
+        }
+        
+        #empty-state {
+            display: none;
+        }
+        
+        #video-grid:empty ~ #empty-state {
+            display: flex;
+        }
+    </style>
+</head>
+<body>
 
+    <!-- ヘッダー -->
+    <div id="header">
+        <h1>📞 シンプル通話</h1>
+        <div>
+            <span id="participant-count">👤 0人</span>
+            <span class="status" id="connection-status">⚪ オフライン</span>
+        </div>
+    </div>
+
+    <!-- コントロール -->
+    <div id="controls">
+        <input type="text" id="roomId" placeholder="ルーム名" value="room123">
+        <input type="text" id="userName" placeholder="表示名" value="あなた">
+        <button class="btn-join" id="joinBtn">参加</button>
+        <button class="btn-leave" id="leaveBtn" disabled>退出</button>
+        <button class="btn-mute" id="muteBtn">🔊</button>
+    </div>
+
+    <!-- 映像グリッド -->
+    <div id="video-grid"></div>
+    <div id="empty-state">
+        <div class="icon">🎥</div>
+        <div>ルームに参加して通話を始めましょう</div>
+        <div style="font-size:13px;color:#444;">最大10人まで同時通話可能</div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
