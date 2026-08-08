@@ -5,28 +5,52 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>音声通話</title>
     <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
         body {
             font-family: Arial, sans-serif;
             text-align: center;
             padding: 20px;
             background: #f0f2f5;
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
         }
         .container {
             max-width: 400px;
+            width: 100%;
             margin: 0 auto;
             background: white;
             padding: 30px;
             border-radius: 10px;
             box-shadow: 0 2px 10px rgba(0,0,0,0.1);
         }
+        h1 {
+            font-size: 24px;
+            margin-bottom: 20px;
+            color: #1a1a2e;
+        }
+        .input-group {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
         input {
-            width: 70%;
+            flex: 1;
             padding: 12px;
             font-size: 16px;
-            border: 1px solid #ddd;
+            border: 2px solid #ddd;
             border-radius: 5px;
-            margin-bottom: 15px;
             text-align: center;
+            transition: border-color 0.3s;
+        }
+        input:focus {
+            outline: none;
+            border-color: #0066cc;
         }
         button {
             width: 100%;
@@ -37,35 +61,43 @@
             border: none;
             border-radius: 5px;
             cursor: pointer;
-            transition: background 0.3s;
+            transition: all 0.3s;
+            font-weight: bold;
         }
         button:hover:not(:disabled) {
             background: #0052a3;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0,102,204,0.3);
         }
         button:disabled {
             background: #999;
             cursor: not-allowed;
+            transform: none;
         }
         #status {
             color: #666;
-            margin: 20px 0;
+            margin: 20px 0 10px;
             min-height: 24px;
             font-size: 14px;
+            font-weight: 500;
         }
         #myId {
             color: #0066cc;
             font-size: 12px;
             word-break: break-all;
-            background: #f5f5f5;
-            padding: 8px;
+            background: #f5f7fa;
+            padding: 10px;
             border-radius: 5px;
             margin: 10px 0;
+            border: 1px solid #e8ecf1;
         }
-        .hint {
-            color: #999;
-            font-size: 12px;
-            margin-top: 15px;
-            line-height: 1.5;
+        .participant-info {
+            font-size: 13px;
+            color: #888;
+            margin: 5px 0 15px;
+            padding: 8px;
+            background: #f8f9fa;
+            border-radius: 5px;
         }
         .audio-visual {
             margin: 20px 0;
@@ -73,9 +105,16 @@
             background: #e8f4fd;
             border-radius: 8px;
             display: none;
+            border: 2px solid #b8d4e8;
         }
         .audio-visual.active {
             display: block;
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0% { border-color: #b8d4e8; }
+            50% { border-color: #0066cc; }
+            100% { border-color: #b8d4e8; }
         }
         .volume-bar {
             height: 8px;
@@ -86,9 +125,56 @@
         }
         .volume-fill {
             height: 100%;
-            background: #0066cc;
+            background: linear-gradient(90deg, #0066cc, #00cc66);
             width: 0%;
             transition: width 0.1s;
+            border-radius: 4px;
+        }
+        .hint {
+            color: #999;
+            font-size: 12px;
+            margin-top: 15px;
+            line-height: 1.6;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 5px;
+            border: 1px solid #eee;
+        }
+        .hint span {
+            display: inline-block;
+            margin: 2px 0;
+        }
+        .badge {
+            display: inline-block;
+            padding: 2px 10px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: bold;
+            margin-left: 5px;
+        }
+        .badge.online {
+            background: #00cc66;
+            color: white;
+        }
+        .badge.offline {
+            background: #ff4444;
+            color: white;
+        }
+        .badge.waiting {
+            background: #ffaa00;
+            color: white;
+        }
+        @media (max-width: 480px) {
+            .container {
+                padding: 20px;
+            }
+            h1 {
+                font-size: 20px;
+            }
+            button {
+                padding: 14px;
+                font-size: 16px;
+            }
         }
     </style>
 </head>
@@ -96,24 +182,31 @@
     <div class="container">
         <h1>🎤 音声通話</h1>
         
-        <input type="text" id="roomId" placeholder="ルームID" value="room123">
+        <div class="input-group">
+            <input type="text" id="roomId" placeholder="ルームID" value="room123">
+        </div>
         
         <button id="connectBtn" disabled>🔗 接続</button>
         
-        <div id="status">接続準備中...</div>
-        <div id="myId">読み込み中...</div>
+        <div id="status">🔄 接続準備中...</div>
+        <div id="myId">📱 読み込み中...</div>
+        <div class="participant-info" id="participantInfo">👤 参加者: 0人</div>
         
         <div class="audio-visual" id="audioVisual">
-            <div>🔊 相手の音声レベル</div>
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+                <span>🔊 相手の音声レベル</span>
+                <span id="volumePercent" style="font-size:12px; color:#666;">0%</span>
+            </div>
             <div class="volume-bar">
                 <div class="volume-fill" id="volumeFill"></div>
             </div>
         </div>
         
         <div class="hint">
-            💡 同じルームIDを相手と共有してください<br>
-            🔒 マイクの許可が必要です<br>
-            👥 2人まで同時接続可能
+            <span>💡 同じルームIDを相手と共有してください</span><br>
+            <span>🔒 マイクの許可が必要です</span><br>
+            <span>👥 2人まで同時接続可能</span><br>
+            <span style="color:#ff6600; font-size:11px;">⚠️ ブラウザのポップアップブロックを解除してください</span>
         </div>
     </div>
     
