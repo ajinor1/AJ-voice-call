@@ -82,6 +82,11 @@
             color: #c9d1d9;
         }
         .btn-secondary:hover { background: #30363d; }
+        .btn-success {
+            background: #1f6feb;
+            color: white;
+        }
+        .btn-success:hover { background: #388bfd; }
         .btn:disabled {
             opacity: 0.5;
             cursor: not-allowed;
@@ -147,6 +152,10 @@
             border-radius: 6px;
             margin: 8px 0;
             font-family: monospace;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
         }
         .badge {
             display: inline-block;
@@ -155,6 +164,46 @@
             padding: 2px 10px;
             border-radius: 12px;
             font-size: 12px;
+        }
+        .copy-btn {
+            background: transparent;
+            border: 1px solid #30363d;
+            color: #58a6ff;
+            padding: 4px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+        .copy-btn:hover {
+            background: #1c2333;
+        }
+        .call-input-group {
+            display: flex;
+            gap: 8px;
+            margin: 8px 0;
+        }
+        .call-input-group input {
+            flex: 1;
+            margin: 0;
+        }
+        .call-input-group button {
+            width: auto;
+            padding: 12px 20px;
+        }
+        .room-id-display {
+            text-align: center;
+            font-size: 13px;
+            color: #8b949e;
+            padding: 8px;
+            background: #0d1117;
+            border-radius: 6px;
+            margin-bottom: 8px;
+            border: 1px dashed #30363d;
+        }
+        .room-id-display span {
+            color: #58a6ff;
+            font-weight: bold;
+            font-family: monospace;
         }
     </style>
 </head>
@@ -181,9 +230,13 @@
             <span class="badge" id="statusBadge">🟢 接続中</span>
         </div>
 
+        <div class="room-id-display">
+            📍 ルームID: <span id="roomIdDisplay">voice-room-2026</span>
+        </div>
+
         <div class="my-id">
-            🆔 あなたのID: <span id="myPeerId">読み込み中...</span>
-            <button onclick="copyPeerId()" style="background:transparent;border:none;color:#58a6ff;cursor:pointer;font-size:12px;margin-left:8px;">📋 コピー</button>
+            <span>🆔 あなたのID: <span id="myPeerId">読み込み中...</span></span>
+            <button class="copy-btn" onclick="copyPeerId()">📋 コピー</button>
         </div>
 
         <div class="participants-grid" id="participantsGrid">
@@ -197,9 +250,9 @@
             💡 参加者のIDを入力して通話を開始できます
         </div>
 
-        <div style="display:flex;gap:8px;margin:8px 0;">
-            <input type="text" id="peerIdInput" placeholder="相手のIDを入力" style="flex:1;">
-            <button class="btn btn-secondary" onclick="callPeer()" style="width:auto;padding:12px 20px;">📞 呼ぶ</button>
+        <div class="call-input-group">
+            <input type="text" id="peerIdInput" placeholder="相手のIDを入力">
+            <button class="btn btn-success" onclick="callPeer()">📞 呼ぶ</button>
         </div>
 
         <div class="controls">
@@ -213,15 +266,16 @@
 
 <script>
     // ====== 設定 ======
-    const PASSWORD = 'testpass3141';  // ← ここを好きなパスワードに変更
+    const PASSWORD = 'testpass3141';  // ← 修正済み
     const MAX_PARTICIPANTS = 5;
+    const ROOM_ID = 'voice-room-2026';
 
     // ====== 状態 ======
     let peer = null;
     let myStream = null;
-    const connections = {};  // peerId -> { call, stream, audio }
+    const connections = {};
     let isMuted = false;
-    let roomJoined = false;
+    let myPeerId = '';
 
     // ====== ログイン ======
     function login() {
@@ -229,6 +283,7 @@
         if (input === PASSWORD) {
             document.getElementById('login').style.display = 'none';
             document.getElementById('room').classList.remove('hidden');
+            document.getElementById('roomIdDisplay').textContent = ROOM_ID;
             initPeer();
         } else {
             document.getElementById('loginError').textContent = '❌ パスワードが違います';
@@ -237,10 +292,9 @@
 
     // ====== PeerJS 初期化 ======
     function initPeer() {
-        // ランダムID生成（固定ルーム用）
-        const roomId = 'voice-room-2026';
+        const randomId = 'user-' + Date.now() + '-' + Math.random().toString(36).substring(2, 8);
         
-        peer = new Peer(roomId, {
+        peer = new Peer(randomId, {
             debug: 0,
             config: {
                 iceServers: [
@@ -251,11 +305,10 @@
         });
 
         peer.on('open', (id) => {
+            myPeerId = id;
             document.getElementById('myPeerId').textContent = id;
-            document.getElementById('statusMessage').textContent = '✅ ルームに参加しました。参加者のIDを入力して呼び出してください。';
-            roomJoined = true;
+            document.getElementById('statusMessage').textContent = '✅ ルームに参加しました。他の参加者のIDを入力して呼び出してください。';
             
-            // 自分のマイクを準備
             navigator.mediaDevices.getUserMedia({ audio: true, video: false })
                 .then(stream => {
                     myStream = stream;
@@ -265,11 +318,9 @@
                     document.getElementById('roomError').textContent = '⚠️ マイクアクセスが拒否されました: ' + err.message;
                 });
 
-            // 既存の参加者をチェック（自分以外）
             updateParticipantCount();
         });
 
-        // 着信処理
         peer.on('call', (incomingCall) => {
             if (Object.keys(connections).length >= MAX_PARTICIPANTS - 1) {
                 incomingCall.close();
@@ -292,38 +343,26 @@
             setupCall(incomingCall, callerId);
             
             document.getElementById('statusMessage').textContent = `📞 ${callerId} から着信しました`;
+            document.getElementById('roomError').textContent = '';
         });
 
         peer.on('error', (err) => {
-            if (err.type === 'peer-unavailable') {
-                // ルームIDが既に使われている場合は、別のIDで再接続
-                reconnectWithNewId();
+            if (err.type === 'unavailable-id' || err.type === 'peer-unavailable') {
+                document.getElementById('statusMessage').textContent = '🔄 IDが使われています。再生成します...';
+                peer.destroy();
+                setTimeout(() => initPeer(), 1000);
             } else {
-                document.getElementById('roomError').textContent = '⚠️ 接続エラー: ' + err.message;
+                document.getElementById('roomError').textContent = '⚠️ ' + err.message;
             }
         });
 
-        // 5秒経っても接続できない場合は再試行
         setTimeout(() => {
-            if (!roomJoined) {
-                reconnectWithNewId();
+            if (!peer || !peer.id) {
+                document.getElementById('statusMessage').textContent = '🔄 再接続中...';
+                peer.destroy();
+                setTimeout(() => initPeer(), 1000);
             }
-        }, 5000);
-    }
-
-    function reconnectWithNewId() {
-        if (peer) peer.destroy();
-        const newId = 'voice-room-' + Date.now();
-        peer = new Peer(newId, {
-            debug: 0,
-            config: {
-                iceServers: [
-                    { urls: 'stun:stun.l.google.com:19302' }
-                ]
-            }
-        });
-        // イベント再設定（簡略化のため再起動）
-        location.reload();
+        }, 8000);
     }
 
     // ====== 発信 ======
@@ -333,7 +372,7 @@
             document.getElementById('roomError').textContent = '⚠️ IDを入力してください';
             return;
         }
-        if (targetId === peer.id) {
+        if (targetId === myPeerId) {
             document.getElementById('roomError').textContent = '⚠️ 自分自身にはかけられません';
             return;
         }
@@ -351,9 +390,15 @@
         }
 
         document.getElementById('roomError').textContent = '';
-        const call = peer.call(targetId, myStream);
-        setupCall(call, targetId);
         document.getElementById('statusMessage').textContent = `📞 ${targetId} に発信中...`;
+        
+        const call = peer.call(targetId, myStream);
+        if (call) {
+            setupCall(call, targetId);
+        } else {
+            document.getElementById('roomError').textContent = '⚠️ 相手が見つかりませんでした';
+            document.getElementById('statusMessage').textContent = '💡 相手のIDが正しいか確認してください';
+        }
     }
 
     // ====== 通話セットアップ ======
@@ -370,13 +415,15 @@
             addParticipant(peerId);
             updateParticipantCount();
             document.getElementById('statusMessage').textContent = `🔊 ${peerId} と通話中 (${Object.keys(connections).length + 1}/5人)`;
+            document.getElementById('roomError').textContent = '';
         });
 
         call.on('close', () => {
             removeParticipant(peerId);
         });
 
-        call.on('error', () => {
+        call.on('error', (err) => {
+            document.getElementById('roomError').textContent = '⚠️ 通話エラー: ' + err.message;
             removeParticipant(peerId);
         });
     }
@@ -384,7 +431,6 @@
     // ====== UI更新 ======
     function addParticipant(peerId) {
         const grid = document.getElementById('participantsGrid');
-        // 既に存在するかチェック
         if (document.getElementById(`part-${peerId}`)) return;
 
         const div = document.createElement('div');
@@ -392,7 +438,7 @@
         div.id = `part-${peerId}`;
         div.innerHTML = `
             <div>👤</div>
-            <div style="font-size:11px;word-break:break-all;">${peerId.substring(0, 8)}</div>
+            <div style="font-size:11px;word-break:break-all;">${peerId.substring(0, 12)}</div>
         `;
         grid.appendChild(div);
     }
@@ -455,7 +501,6 @@
         navigator.clipboard.writeText(id).then(() => {
             document.getElementById('statusMessage').textContent = '📋 IDをコピーしました！';
         }).catch(() => {
-            // フォールバック
             const input = document.createElement('input');
             input.value = id;
             document.body.appendChild(input);
@@ -467,7 +512,6 @@
     }
 
     function leaveRoom() {
-        // 全ての接続を閉じる
         Object.keys(connections).forEach(id => {
             if (connections[id].call) connections[id].call.close();
             if (connections[id].audio) {
@@ -482,7 +526,6 @@
         location.reload();
     }
 
-    // ページ離脱時
     window.addEventListener('beforeunload', () => {
         if (myStream) {
             myStream.getTracks().forEach(track => track.stop());
@@ -490,7 +533,6 @@
         if (peer) peer.destroy();
     });
 
-    // Enterキーでログイン/発信
     document.addEventListener('keydown', (e) => {
         if (e.key === 'Enter') {
             const login = document.getElementById('login');
