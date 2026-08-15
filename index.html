@@ -7,29 +7,50 @@
   <style>
     html,body,#jitsi-container{height:100%;margin:0;padding:0}
     #jitsi-container{width:100%;height:100%;background:#111;color:#fff;display:flex;align-items:center;justify-content:center}
-    #notice{position:absolute;top:8px;left:8px;background:rgba(0,0,0,0.5);color:#fff;padding:6px 8px;border-radius:4px;font-size:14px}
+    #notice{position:absolute;top:8px;left:8px;background:rgba(0,0,0,0.6);color:#fff;padding:6px 8px;border-radius:4px;font-size:14px}
+    #my-id-badge{position:absolute;top:8px;right:8px;background:rgba(0,0,0,0.6);color:#fff;padding:6px 8px;border-radius:4px;font-size:14px;font-family:monospace}
+    #warning{position:absolute;bottom:8px;left:8px;background:rgba(255,136,62,0.12);color:#f0883e;padding:6px 8px;border-radius:4px;font-size:13px}
   </style>
 </head>
 <body>
-  <div id="notice">音声のみ — パスワードは初期値が設定されています</div>
+  <div id="notice">音声のみ — 自動入室（サインイン不要）</div>
+  <div id="my-id-badge">ID: <span id="myId">読み込み中</span></div>
   <div id="jitsi-container"></div>
+  <div id="warning">注: Android 5.1 の一部ブラウザでは WebRTC が動作しない場合があります。Chrome を推奨。</div>
 
   <script src="https://meet.jit.si/external_api.js"></script>
   <script>
-    // 設定: 必要に応じてここを書き換えてください
+    // 設定
     const ROOM_NAME = 'AJ-voice-call-room';
-    const INITIAL_PASSWORD = 'testpass3141';
+    const MAX_UNIQUE_ATTEMPTS = 6; // 衝突発生時に新ID生成を試す最大回数
 
-    function showMessage(msg){
-      const c = document.getElementById('jitsi-container');
-      c.innerHTML = '<div style="color:#fff;padding:16px">'+msg+'</div>';
+    // ランダムID生成: 8文字、小文字英字と数字
+    function generateId(){
+      const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+      let s = '';
+      for(let i=0;i<8;i++) s += chars.charAt(Math.floor(Math.random()*chars.length));
+      return s;
     }
 
-    function initJitsi(){
-      if(typeof JitsiMeetExternalAPI === 'undefined'){
-        showMessage('Jitsi API を読み込めませんでした。ネットワーク接続を確認してください。');
-        return;
+    // UI
+    function setMyIdBadge(id){
+      document.getElementById('myId').textContent = id;
+    }
+
+    // Jitsi API 管理
+    let api = null;
+    let currentId = null;
+    let initAttempts = 0;
+
+    function createJitsiWithId(id){
+      // 既にapiがある場合はdisposeしてから作り直す
+      if(api){
+        try{ api.dispose(); }catch(e){}
+        api = null;
       }
+
+      currentId = id;
+      setMyIdBadge(id);
 
       const domain = 'meet.jit.si';
       const options = {
@@ -44,35 +65,76 @@
           startWithVideoMuted: true,
           startAudioOnly: true,
           prejoinPageEnabled: false
+        },
+        userInfo: {
+          displayName: id
         }
       };
 
       try{
-        const api = new JitsiMeetExternalAPI(domain, options);
+        api = new JitsiMeetExternalAPI(domain, options);
 
-        // 会議に参加したらパスワードをセット（最初に入った人がモデレーターであれば有効になります）
         api.addEventListener('videoConferenceJoined', () => {
-          try{
-            api.executeCommand('password', INITIAL_PASSWORD);
-          }catch(e){
-            // モデレーターでない場合やエラーはここで無視します
-            console.warn('パスワード設定に失敗:', e);
-          }
+          // 会議参加後、参加者名一覧を取得して重複があれば別IDに切り替える
+          // ※ 完全な衝突排除はサーバが必要ですが、参加者一覧を見て重複があれば再生成で対処します
+          setTimeout(checkForNameCollisionAndRetry, 500);
         });
 
-        // Android 5.1 の古いブラウザ向けに getUserMedia の存在をチェックしておく
-        if(!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia)){
-          // 画面に警告を出すが、Jitsi 側が別途扱うことが多い
-          console.warn('getUserMedia 未サポート: 音声が取れない可能性があります');
-        }
+        api.addEventListener('participantJoined', () => {
+          // 他の参加者が入ったときにも重複チェック
+          setTimeout(checkForNameCollisionAndRetry, 500);
+        });
+
+        api.addEventListener('participantLeft', () => {
+          // 参加者退室時は特に処理不要
+        });
 
       }catch(err){
-        console.error(err);
-        showMessage('通話の初期化に失敗しました。コンソールを確認してください。');
+        console.error('Jitsi 初期化エラー:', err);
+        document.getElementById('jitsi-container').innerHTML = '<div style="color:#fff;padding:16px">通話の初期化に失敗しました。コンソールを確認してください。</div>';
       }
     }
 
-    window.addEventListener('load', initJitsi);
+    // 参加者一覧を取得して displayName の重複をチェック
+    function checkForNameCollisionAndRetry(){
+      if(!api || typeof api.getParticipantsInfo !== 'function') return;
+      try{
+        const parts = api.getParticipantsInfo();
+        const names = parts.map(p => (p && p.displayName) ? p.displayName : '').filter(n=>n);
+        const counts = {};
+        names.forEach(n => { counts[n] = (counts[n]||0)+1; });
+
+        if(counts[currentId] && counts[currentId] > 1){
+          // 衝突あり -> 新IDを生成して再接続
+          if(initAttempts >= MAX_UNIQUE_ATTEMPTS){
+            console.warn('ID 衝突が続きました。現在のIDをそのまま使用します:', currentId);
+            return;
+          }
+          initAttempts++;
+          const newId = generateId();
+          console.log('ID 衝突検出。新IDに切替:', currentId, '->', newId);
+          createJitsiWithId(newId);
+        } else {
+          // 衝突なし
+          initAttempts = 0;
+        }
+      }catch(e){
+        console.warn('参加者情報取得エラー:', e);
+      }
+    }
+
+    // 初期化: 毎回新規IDを生成して入室
+    (function(){
+      const id = generateId();
+      createJitsiWithId(id);
+    })();
+
+    // 画面ロード時の注意: 古いブラウザでは getUserMedia が未対応で音声が取れない可能性がある
+    window.addEventListener('load', () => {
+      if(!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia)){
+        console.warn('getUserMedia 未サポート: 音声が取れない可能性があります');
+      }
+    });
   </script>
 </body>
 </html>
