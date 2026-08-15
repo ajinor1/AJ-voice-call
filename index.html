@@ -1,664 +1,78 @@
-<!DOCTYPE html>
-<html>
+<!doctype html>
+<html lang="ja">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>音声通話ルーム</title>
-    <script src="https://unpkg.com/peerjs@1.5.1/dist/peerjs.min.js"></script>
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body {
-            font-family: 'Segoe UI', Arial, sans-serif;
-            background: #0d1117;
-            color: #e6edf3;
-            min-height: 100vh;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            padding: 16px;
-        }
-        .container {
-            background: #161b22;
-            padding: 30px;
-            border-radius: 16px;
-            width: 100%;
-            max-width: 550px;
-            border: 1px solid #30363d;
-        }
-        h1 { 
-            text-align: center; 
-            font-size: 24px;
-            margin-bottom: 4px;
-            color: #58a6ff;
-        }
-        .subtitle {
-            text-align: center;
-            color: #8b949e;
-            font-size: 14px;
-            margin-bottom: 20px;
-        }
-        .password-box {
-            background: #0d1117;
-            padding: 20px;
-            border-radius: 12px;
-            border: 1px solid #30363d;
-        }
-        input {
-            width: 100%;
-            padding: 12px 16px;
-            margin: 8px 0;
-            background: #0d1117;
-            border: 1px solid #30363d;
-            border-radius: 8px;
-            color: white;
-            font-size: 16px;
-        }
-        input:focus {
-            outline: none;
-            border-color: #58a6ff;
-        }
-        .btn {
-            width: 100%;
-            padding: 12px;
-            border: none;
-            border-radius: 8px;
-            font-size: 16px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.2s;
-        }
-        .btn-primary {
-            background: #238636;
-            color: white;
-        }
-        .btn-primary:hover { background: #2ea043; }
-        .btn-danger {
-            background: #da3633;
-            color: white;
-        }
-        .btn-danger:hover { background: #f85149; }
-        .btn-secondary {
-            background: #21262d;
-            color: #c9d1d9;
-        }
-        .btn-secondary:hover { background: #30363d; }
-        .btn:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-        }
-        .hidden { display: none; }
-        #room {
-            margin-top: 16px;
-        }
-        .status-bar {
-            background: #0d1117;
-            padding: 12px 16px;
-            border-radius: 8px;
-            margin: 12px 0;
-            font-size: 14px;
-            border-left: 3px solid #58a6ff;
-            min-height: 48px;
-            display: flex;
-            align-items: center;
-        }
-        .participants-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
-            gap: 8px;
-            margin: 12px 0;
-            min-height: 60px;
-        }
-        .participant-card {
-            background: #0d1117;
-            padding: 10px 8px;
-            border-radius: 8px;
-            text-align: center;
-            border: 1px solid #30363d;
-            font-size: 12px;
-            transition: all 0.3s;
-        }
-        .participant-card.myself {
-            border-color: #58a6ff;
-            background: #0d1f3c;
-        }
-        .participant-card.speaking {
-            border-color: #2ea043;
-            animation: pulse 0.8s infinite;
-        }
-        @keyframes pulse {
-            0%, 100% { box-shadow: 0 0 0 0 #2ea04344; }
-            50% { box-shadow: 0 0 0 4px #2ea04322; }
-        }
-        .controls {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 8px;
-            margin-top: 12px;
-        }
-        .error-msg {
-            color: #f85149;
-            font-size: 14px;
-            text-align: center;
-            margin-top: 8px;
-            min-height: 20px;
-        }
-        .my-id {
-            font-size: 12px;
-            color: #8b949e;
-            text-align: center;
-            background: #0d1117;
-            padding: 8px;
-            border-radius: 6px;
-            margin: 8px 0;
-            font-family: monospace;
-        }
-        .badge {
-            display: inline-block;
-            background: #238636;
-            color: white;
-            padding: 2px 10px;
-            border-radius: 12px;
-            font-size: 12px;
-        }
-        .room-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 8px;
-        }
-        .room-id-display {
-            text-align: center;
-            font-size: 13px;
-            color: #8b949e;
-            padding: 8px;
-            background: #0d1117;
-            border-radius: 6px;
-            margin-bottom: 8px;
-            border: 1px dashed #30363d;
-        }
-        .room-id-display span {
-            color: #58a6ff;
-            font-weight: bold;
-            font-family: monospace;
-        }
-        .auto-join-info {
-            text-align: center;
-            font-size: 13px;
-            color: #8b949e;
-            padding: 6px;
-            background: #0d1117;
-            border-radius: 6px;
-            margin-bottom: 8px;
-        }
-        .auto-join-info .highlight {
-            color: #f0883e;
-        }
-        .status-dot {
-            display: inline-block;
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            margin-right: 8px;
-        }
-        .status-dot.green { background: #238636; }
-        .status-dot.yellow { background: #d29922; }
-        .status-dot.red { background: #da3633; }
-        .status-dot.gray { background: #8b949e; }
-    </style>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>AJ Voice Call — 音声通話</title>
+  <style>
+    html,body,#jitsi-container{height:100%;margin:0;padding:0}
+    #jitsi-container{width:100%;height:100%;background:#111;color:#fff;display:flex;align-items:center;justify-content:center}
+    #notice{position:absolute;top:8px;left:8px;background:rgba(0,0,0,0.5);color:#fff;padding:6px 8px;border-radius:4px;font-size:14px}
+  </style>
 </head>
 <body>
+  <div id="notice">音声のみ — パスワードは初期値が設定されています</div>
+  <div id="jitsi-container"></div>
 
-<div class="container">
-    <h1>🎙️ 音声通話</h1>
-    <p class="subtitle">自動接続・最大5人同時通話</p>
+  <script src="https://meet.jit.si/external_api.js"></script>
+  <script>
+    // 設定: 必要に応じてここを書き換えてください
+    const ROOM_NAME = 'AJ-voice-call-room';
+    const INITIAL_PASSWORD = 'testpass3141';
 
-    <!-- ログイン画面 -->
-    <div id="login">
-        <div class="password-box">
-            <label style="font-weight:600;font-size:14px;">🔑 ルームパスワード</label>
-            <input type="password" id="passwordInput" placeholder="パスワードを入力" autofocus>
-            <button class="btn btn-primary" onclick="login()">入室する</button>
-            <div class="error-msg" id="loginError"></div>
-        </div>
-    </div>
-
-    <!-- 通話ルーム -->
-    <div id="room" class="hidden">
-        <div class="room-header">
-            <span style="font-weight:600;">👥 参加者 <span id="participantCount">1</span>/5</span>
-            <span class="badge" id="statusBadge">🟢 接続中</span>
-        </div>
-
-        <div class="room-id-display">
-            📍 ルームID: <span id="roomIdDisplay">voice-room</span>
-        </div>
-
-        <div class="auto-join-info">
-            ⚡ <span class="highlight">自動接続モード</span> — 入室したら全員と自動でつながります
-        </div>
-
-        <div class="my-id">
-            🆔 あなたのID: <span id="myPeerId">読み込み中...</span>
-        </div>
-
-        <div class="participants-grid" id="participantsGrid">
-            <div class="participant-card myself" id="selfCard">
-                <div>👤</div>
-                <div style="font-size:10px;">あなた</div>
-            </div>
-        </div>
-
-        <div class="status-bar" id="statusMessage">
-            <span class="status-dot yellow"></span>
-            参加者を待機中...
-        </div>
-
-        <div class="controls">
-            <button class="btn btn-secondary" id="muteBtn" onclick="toggleMute()">🔊 ミュート</button>
-            <button class="btn btn-danger" onclick="leaveRoom()">🚪 退出</button>
-        </div>
-
-        <div class="error-msg" id="roomError"></div>
-    </div>
-</div>
-
-<script>
-    // ====== 設定 ======
-    const PASSWORD = 'testpass3141';
-    const MAX_PARTICIPANTS = 5;
-    const ROOM_ID = 'voice-room-2026';
-
-    // ====== 状態 ======
-    let peer = null;
-    let myStream = null;
-    const connections = {};
-    let isMuted = false;
-    let myPeerId = '';
-    let isConnecting = false;
-    let reconnectTimer = null;
-    let knownPeers = []; // 既に知っている参加者ID
-
-    // ====== ユーティリティ: 6桁ランダムID生成 ======
-    function generateShortId() {
-        const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
-        let result = '';
-        for (let i = 0; i < 6; i++) {
-            result += chars.charAt(Math.floor(Math.random() * chars.length));
-        }
-        return result;
+    function showMessage(msg){
+      const c = document.getElementById('jitsi-container');
+      c.innerHTML = '<div style="color:#fff;padding:16px">'+msg+'</div>';
     }
 
-    // ====== ログイン ======
-    function login() {
-        const input = document.getElementById('passwordInput').value;
-        if (input === PASSWORD) {
-            document.getElementById('login').style.display = 'none';
-            document.getElementById('room').classList.remove('hidden');
-            document.getElementById('roomIdDisplay').textContent = ROOM_ID;
-            initPeer();
-        } else {
-            document.getElementById('loginError').textContent = '❌ パスワードが違います';
-            document.getElementById('passwordInput').value = '';
-            document.getElementById('passwordInput').focus();
-        }
-    }
+    function initJitsi(){
+      if(typeof JitsiMeetExternalAPI === 'undefined'){
+        showMessage('Jitsi API を読み込めませんでした。ネットワーク接続を確認してください。');
+        return;
+      }
 
-    // ====== PeerJS 初期化 ======
-    function initPeer() {
-        // 6桁のランダムIDを生成
-        const shortId = generateShortId();
-        const fullId = 'u' + shortId; // 先頭にuを付けて識別しやすく
-        
-        peer = new Peer(fullId, {
-            debug: 0,
-            config: {
-                iceServers: [
-                    { urls: 'stun:stun.l.google.com:19302' },
-                    { urls: 'stun:stun1.l.google.com:19302' }
-                ]
-            }
+      const domain = 'meet.jit.si';
+      const options = {
+        roomName: ROOM_NAME,
+        parentNode: document.getElementById('jitsi-container'),
+        interfaceConfigOverwrite: {
+          TOOLBAR_BUTTONS: ['microphone','hangup'],
+          SHOW_JITSI_WATERMARK: false,
+          SHOW_WATERMARK_FOR_GUESTS: false
+        },
+        configOverwrite: {
+          startWithVideoMuted: true,
+          startAudioOnly: true,
+          prejoinPageEnabled: false
+        }
+      };
+
+      try{
+        const api = new JitsiMeetExternalAPI(domain, options);
+
+        // 会議に参加したらパスワードをセット（最初に入った人がモデレーターであれば有効になります）
+        api.addEventListener('videoConferenceJoined', () => {
+          try{
+            api.executeCommand('password', INITIAL_PASSWORD);
+          }catch(e){
+            // モデレーターでない場合やエラーはここで無視します
+            console.warn('パスワード設定に失敗:', e);
+          }
         });
 
-        peer.on('open', (id) => {
-            myPeerId = id;
-            document.getElementById('myPeerId').textContent = id;
-            updateStatus('🟢 ルームに参加しました', 'green');
-            document.getElementById('roomError').textContent = '';
-            
-            // マイク取得
-            navigator.mediaDevices.getUserMedia({ 
-                audio: { 
-                    echoCancellation: true,
-                    noiseSuppression: true,
-                    autoGainControl: true
-                }, 
-                video: false 
-            })
-            .then(stream => {
-                myStream = stream;
-                updateSelfAudioIndicator(true);
-                // マイク取得後に既存参加者をスキャン
-                setTimeout(() => scanAndConnectToAll(), 1000);
-            })
-            .catch(err => {
-                document.getElementById('roomError').textContent = '⚠️ マイクアクセスが拒否されました: ' + err.message;
-                updateStatus('❌ マイクが使えません', 'red');
-            });
+        // Android 5.1 の古いブラウザ向けに getUserMedia の存在をチェックしておく
+        if(!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia)){
+          // 画面に警告を出すが、Jitsi 側が別途扱うことが多い
+          console.warn('getUserMedia 未サポート: 音声が取れない可能性があります');
+        }
 
-            updateParticipantCount();
-            // 定期的に新しい参加者をチェック
-            startPeerDiscovery();
-        });
-
-        // ★★★ 着信処理（自動応答） ★★★
-        peer.on('call', (incomingCall) => {
-            const callerId = incomingCall.peer;
-            
-            // 満員チェック
-            if (Object.keys(connections).length >= MAX_PARTICIPANTS - 1) {
-                incomingCall.close();
-                updateStatus('⚠️ 満員です（5人）', 'red');
-                return;
-            }
-
-            // 既に接続済みなら無視
-            if (connections[callerId]) {
-                incomingCall.close();
-                return;
-            }
-
-            if (!myStream) {
-                incomingCall.close();
-                return;
-            }
-
-            // 自動応答！
-            incomingCall.answer(myStream);
-            setupCall(incomingCall, callerId);
-            
-            // 既知の参加者リストに追加
-            if (!knownPeers.includes(callerId)) {
-                knownPeers.push(callerId);
-            }
-            
-            updateStatus(`📞 ${callerId} が参加しました`, 'green');
-            document.getElementById('roomError').textContent = '';
-        });
-
-        peer.on('error', (err) => {
-            if (err.type === 'unavailable-id' || err.type === 'peer-unavailable') {
-                // ID被り → 再生成
-                updateStatus('🔄 IDが重複しました。再生成します...', 'yellow');
-                peer.destroy();
-                setTimeout(() => initPeer(), 1000);
-            } else if (err.type === 'network') {
-                updateStatus('📡 ネットワークエラー、再接続中...', 'yellow');
-            } else {
-                document.getElementById('roomError').textContent = '⚠️ ' + err.message;
-            }
-        });
-
-        // 切断時
-        peer.on('disconnected', () => {
-            updateStatus('📡 切断されました。再接続中...', 'yellow');
-            setTimeout(() => {
-                if (peer && !peer.destroyed) {
-                    peer.reconnect();
-                }
-            }, 3000);
-        });
-
-        // 再接続時
-        peer.on('close', () => {
-            if (!document.getElementById('room').classList.contains('hidden')) {
-                updateStatus('🔄 再接続しています...', 'yellow');
-                setTimeout(() => initPeer(), 2000);
-            }
-        });
+      }catch(err){
+        console.error(err);
+        showMessage('通話の初期化に失敗しました。コンソールを確認してください。');
+      }
     }
 
-    // ====== 既存参加者をスキャン ======
-    function scanAndConnectToAll() {
-        if (isConnecting) return;
-        isConnecting = true;
-
-        // まずは既知の参加者に接続
-        knownPeers.forEach(peerId => {
-            if (peerId !== myPeerId && !connections[peerId]) {
-                attemptConnection(peerId);
-            }
-        });
-
-        // 新しい参加者を探す（ブロードキャスト的な）
-        // PeerJSにはルーム機能がないので、シグナリングサーバー経由で知る方法はない
-        // 代わりに、参加者が入ってきたら着信で通知される仕組み
-        isConnecting = false;
-    }
-
-    // ====== 新しい参加者の発見（定期チェック） ======
-    function startPeerDiscovery() {
-        // 既存の参加者に定期的にPing代わりに接続試行
-        // 実際には着信で新しい参加者は検知できるので、ここでは既知リストの管理のみ
-        setInterval(() => {
-            // 参加者数チェック
-            updateParticipantCount();
-            
-            // 自分以外の既知参加者に未接続なら再接続試行
-            knownPeers.forEach(peerId => {
-                if (peerId !== myPeerId && !connections[peerId]) {
-                    attemptConnection(peerId);
-                }
-            });
-        }, 5000);
-    }
-
-    // ====== 接続試行 ======
-    function attemptConnection(targetId) {
-        if (!myStream) return;
-        if (targetId === myPeerId) return;
-        if (connections[targetId]) return;
-        if (Object.keys(connections).length >= MAX_PARTICIPANTS - 1) return;
-
-        // 自分自身のIDでないことを確認
-        if (targetId.startsWith('u') && targetId !== myPeerId) {
-            const call = peer.call(targetId, myStream);
-            if (call) {
-                setupCall(call, targetId);
-                updateStatus(`📞 ${targetId} と接続中...`, 'yellow');
-            }
-        }
-    }
-
-    // ====== 通話セットアップ ======
-    function setupCall(call, peerId) {
-        connections[peerId] = { call, stream: null, audio: null };
-
-        call.on('stream', (remoteStream) => {
-            connections[peerId].stream = remoteStream;
-            const audio = new Audio();
-            audio.srcObject = remoteStream;
-            audio.autoplay = true;
-            connections[peerId].audio = audio;
-            
-            addParticipant(peerId);
-            updateParticipantCount();
-            const count = Object.keys(connections).length + 1;
-            updateStatus(`🔊 ${count}/5人で通話中`, 'green');
-            document.getElementById('roomError').textContent = '';
-        });
-
-        call.on('close', () => {
-            removeParticipant(peerId);
-        });
-
-        call.on('error', (err) => {
-            // 相手が存在しないなどのエラーは無視
-            if (err.message.includes('Could not connect to peer')) {
-                // 単に接続できなかっただけ
-            } else {
-                document.getElementById('roomError').textContent = '⚠️ ' + err.message;
-            }
-            removeParticipant(peerId);
-        });
-    }
-
-    // ====== UI更新 ======
-    function addParticipant(peerId) {
-        const grid = document.getElementById('participantsGrid');
-        if (document.getElementById(`part-${peerId}`)) return;
-
-        const div = document.createElement('div');
-        div.className = 'participant-card';
-        div.id = `part-${peerId}`;
-        // 短い表示名（6桁部分だけ表示）
-        const shortName = peerId.replace('u', '');
-        div.innerHTML = `
-            <div>👤</div>
-            <div style="font-size:11px;font-family:monospace;">${shortName}</div>
-        `;
-        grid.appendChild(div);
-
-        // 既知リストに追加
-        if (!knownPeers.includes(peerId)) {
-            knownPeers.push(peerId);
-        }
-    }
-
-    function removeParticipant(peerId) {
-        const el = document.getElementById(`part-${peerId}`);
-        if (el) el.remove();
-        
-        if (connections[peerId]) {
-            if (connections[peerId].audio) {
-                connections[peerId].audio.pause();
-                connections[peerId].audio.srcObject = null;
-            }
-            if (connections[peerId].call) {
-                connections[peerId].call.close();
-            }
-            delete connections[peerId];
-        }
-        
-        // 既知リストからも削除（退出したと判断）
-        const index = knownPeers.indexOf(peerId);
-        if (index > -1) {
-            knownPeers.splice(index, 1);
-        }
-        
-        updateParticipantCount();
-        const count = Object.keys(connections).length + 1;
-        if (count > 1) {
-            updateStatus(`👋 ${peerId} が退出しました (${count}/5人)`, 'yellow');
-        } else {
-            updateStatus('💡 参加者を待機中...', 'yellow');
-        }
-    }
-
-    function updateParticipantCount() {
-        const count = Object.keys(connections).length + 1;
-        document.getElementById('participantCount').textContent = count;
-        
-        const badge = document.getElementById('statusBadge');
-        if (count >= 5) {
-            badge.textContent = '🔴 満員';
-            badge.style.background = '#da3633';
-        } else if (count >= 3) {
-            badge.textContent = '🟡 ' + count + '/5';
-            badge.style.background = '#d29922';
-        } else {
-            badge.textContent = '🟢 ' + count + '/5';
-            badge.style.background = '#238636';
-        }
-    }
-
-    function updateStatus(message, type) {
-        const bar = document.getElementById('statusMessage');
-        const dot = bar.querySelector('.status-dot');
-        if (dot) {
-            dot.className = 'status-dot ' + (type || 'gray');
-        }
-        // メッセージ部分だけ更新（ドットは残す）
-        const textNode = bar.childNodes[1];
-        if (textNode) {
-            textNode.textContent = ' ' + message;
-        } else {
-            bar.innerHTML = `<span class="status-dot ${type || 'gray'}"></span> ${message}`;
-        }
-    }
-
-    function updateSelfAudioIndicator(isActive) {
-        const card = document.getElementById('selfCard');
-        if (isActive && !isMuted) {
-            card.classList.add('speaking');
-        } else {
-            card.classList.remove('speaking');
-        }
-    }
-
-    // ====== コントロール ======
-    function toggleMute() {
-        if (!myStream) return;
-        isMuted = !isMuted;
-        myStream.getAudioTracks().forEach(track => track.enabled = !isMuted);
-        
-        const btn = document.getElementById('muteBtn');
-        btn.textContent = isMuted ? '🔇 ミュート解除' : '🔊 ミュート';
-        btn.classList.toggle('btn-secondary', !isMuted);
-        btn.classList.toggle('btn-danger', isMuted);
-        updateSelfAudioIndicator(true);
-        
-        if (isMuted) {
-            updateStatus('🔇 ミュート中', 'yellow');
-        } else {
-            const count = Object.keys(connections).length + 1;
-            updateStatus(`🔊 ${count}/5人で通話中`, 'green');
-        }
-    }
-
-    function leaveRoom() {
-        // 全接続終了
-        Object.keys(connections).forEach(id => {
-            if (connections[id].call) connections[id].call.close();
-            if (connections[id].audio) {
-                connections[id].audio.pause();
-                connections[id].audio.srcObject = null;
-            }
-        });
-        if (myStream) {
-            myStream.getTracks().forEach(track => track.stop());
-        }
-        if (peer) peer.destroy();
-        location.reload();
-    }
-
-    // ====== ページ離脱時 ======
-    window.addEventListener('beforeunload', () => {
-        if (myStream) {
-            myStream.getTracks().forEach(track => track.stop());
-        }
-        if (peer) peer.destroy();
-    });
-
-    // ====== Enterキーでログイン ======
-    document.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') {
-            const login = document.getElementById('login');
-            if (login.style.display !== 'none') {
-                login();
-            }
-        }
-    });
-
-    // ====== 既知の参加者を手動で追加（デバッグ用、実運用では不要） ======
-    // 必要に応じて、URLパラメータで参加者IDを受け取ることも可能
-    // 例: ?peer=uabc123
-    (function checkUrlParams() {
-        const params = new URLSearchParams(window.location.search);
-        const peerParam = params.get('peer');
-        if (peerParam) {
-            knownPeers.push(peerParam);
-        }
-    })();
-</script>
+    window.addEventListener('load', initJitsi);
+  </script>
 </body>
 </html>
