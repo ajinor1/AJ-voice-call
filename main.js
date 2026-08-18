@@ -293,5 +293,3 @@ async function createPeerConnection(peerId, initiator) {
                 timestamp: Date.now()
             });
         }
-
-{
