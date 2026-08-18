@@ -172,7 +172,9 @@ async function monitorPeers() {
         // 接続していない新しいピアに接続
         for (const peerId of peerIds) {
             if (!peerConnections.has(peerId)) {
-                await createPeerConnection(peerId, true); // initiator
+                // deterministic initiator: 比較で一方のみ initiator=true にする
+                const initiator = localPeerId > peerId;
+                await createPeerConnection(peerId, initiator); // initiator may be true/false
             }
         }
 
@@ -282,13 +284,13 @@ async function createPeerConnection(peerId, initiator) {
         const remoteOfferRef = ref(database, `offers/${peerId}/${localPeerId}`);
         onValue(remoteOfferRef, async (snapshot) => {
             const offerData = snapshot.val();
-            if (offerData && (!peerConnection.remoteDescription || peerConnection.remoteDescription.type !== 'offer')) {
-                try {
-                    await peerConnection.setRemoteDescription(
-                        { type: 'offer', sdp: offerData.sdp }
-                    );
+            if (!offerData) return;
 
-                    // Answer を作成して送信
+            const state = peerConnection.signalingState;
+            // 普通のケース: stable -> setRemote + createAnswer
+            if (state === 'stable') {
+                try {
+                    await peerConnection.setRemoteDescription({ type: 'offer', sdp: offerData.sdp });
                     const answer = await peerConnection.createAnswer();
                     await peerConnection.setLocalDescription(answer);
                     await set(ref(database, `answers/${localPeerId}/${peerId}`), {
@@ -296,8 +298,48 @@ async function createPeerConnection(peerId, initiator) {
                         type: 'answer',
                         timestamp: Date.now()
                     });
-                } catch (error) {
-                    console.error('Offer 処理エラー:', error);
+                } catch (err) {
+                    console.error('Offer 処理エラー:', err);
+                }
+                return;
+            }
+
+            // glare: 自分が既にローカルオファーを出している場合
+            if (state === 'have-local-offer') {
+                // tie-breaker: localPeerId > peerId の一致したルールで決定
+                if (localPeerId > peerId) {
+                    // 自分のオファーを保持してリモートオファーを無視
+                    console.log('Glare detected: keeping local offer for', peerId);
+                    return;
+                } else {
+                    // 相手のオファーを受け入れる — rollback を試みる
+                    try {
+                        await peerConnection.setLocalDescription({ type: 'rollback' });
+                    } catch (e) {
+                        console.warn('Rollback unsupported or failed, recreating PeerConnection', e);
+                        // フォールバック: 現在の接続を破棄して再作成
+                        cleanupPeer(peerId);
+                        const pc = peerConnections.get(peerId);
+                        if (pc) {
+                            try { pc.close(); } catch (e) { /* noop */ }
+                            peerConnections.delete(peerId);
+                        }
+                        // 再作成して受け入れ側として処理
+                        await createPeerConnection(peerId, false);
+                        return;
+                    }
+                    try {
+                        await peerConnection.setRemoteDescription({ type: 'offer', sdp: offerData.sdp });
+                        const answer = await peerConnection.createAnswer();
+                        await peerConnection.setLocalDescription(answer);
+                        await set(ref(database, `answers/${localPeerId}/${peerId}`), {
+                            sdp: answer.sdp,
+                            type: 'answer',
+                            timestamp: Date.now()
+                        });
+                    } catch (err) {
+                        console.error('Glare Offer 処理エラー:', err);
+                    }
                 }
             }
         });
@@ -306,14 +348,16 @@ async function createPeerConnection(peerId, initiator) {
         const remoteAnswerRef = ref(database, `answers/${peerId}/${localPeerId}`);
         onValue(remoteAnswerRef, async (snapshot) => {
             const answerData = snapshot.val();
-            if (answerData && (!peerConnection.remoteDescription || peerConnection.remoteDescription.type !== 'answer')) {
+            if (!answerData) return;
+            const state = peerConnection.signalingState;
+            if (state === 'have-local-offer' || state === 'have-local-pranswer') {
                 try {
-                    await peerConnection.setRemoteDescription(
-                        { type: 'answer', sdp: answerData.sdp }
-                    );
-                } catch (error) {
-                    console.error('Answer 処理エラー:', error);
+                    await peerConnection.setRemoteDescription({ type: 'answer', sdp: answerData.sdp });
+                } catch (err) {
+                    console.error('Answer 処理エラー:', err);
                 }
+            } else {
+                console.warn('Ignoring remote answer because signalingState is', state);
             }
         });
 
