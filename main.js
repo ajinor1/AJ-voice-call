@@ -27,6 +27,11 @@ const offersRef = ref(database, 'offers');
 const answersRef = ref(database, 'answers');
 const iceCandidatesRef = ref(database, 'iceCandidates');
 
+// マップ：各ピアに紐づくリスナー参照（後で off するため）
+const peerListeners = new Map();
+// マップ：リモート音声用の audio 要素
+const remoteAudios = new Map();
+
 // WebRTC 設定
 const peerConnectionConfig = {
     iceServers: [
@@ -47,7 +52,10 @@ endBtn.addEventListener('click', endCall);
 
 // ユーティリティ
 function generatePeerId() {
-    return 'peer_' + Math.random().toString(36).substr(2, 9);
+    if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+        return 'peer_' + crypto.randomUUID();
+    }
+    return 'peer_' + Math.random().toString(36).slice(2, 11);
 }
 
 function updateStatus(message, type = 'normal') {
@@ -104,9 +112,13 @@ async function endCall() {
             localStream = null;
         }
 
-        // すべての PeerConnection を閉じる
-        peerConnections.forEach(pc => pc.close());
-        peerConnections.clear();
+        // すべての PeerConnection を閉じる（および関連リスナー/オーディオをクリーンアップ）
+        for (const peerId of Array.from(peerConnections.keys())) {
+            cleanupPeer(peerId);
+            const pc = peerConnections.get(peerId);
+            if (pc) pc.close();
+            peerConnections.delete(peerId);
+        }
 
         // Firebase から自分の情報を削除
         await remove(ref(database, `peers/${localPeerId}`));
@@ -114,7 +126,7 @@ async function endCall() {
         await remove(ref(database, `answers/${localPeerId}`));
         await remove(ref(database, `iceCandidates/${localPeerId}`));
 
-        // リスナーを削除
+        // peersRef のリスナーを削除
         off(peersRef);
 
         isCallActive = false;
@@ -132,6 +144,26 @@ async function endCall() {
     }
 }
 
+function cleanupPeer(peerId) {
+    // オフライン/切断時に各種リスナーを解除
+    const refs = peerListeners.get(peerId);
+    if (refs) {
+        for (const r of refs) {
+            try { off(r); } catch (e) { /* noop */ }
+        }
+        peerListeners.delete(peerId);
+    }
+
+    // リモートオーディオ要素を削除
+    const audioEl = remoteAudios.get(peerId);
+    if (audioEl) {
+        audioEl.pause();
+        audioEl.srcObject = null;
+        audioEl.remove();
+        remoteAudios.delete(peerId);
+    }
+}
+
 async function monitorPeers() {
     onValue(peersRef, async (snapshot) => {
         const peers = snapshot.val() || {};
@@ -145,9 +177,11 @@ async function monitorPeers() {
         }
 
         // 削除されたピアの接続をクローズ
-        for (const peerId of peerConnections.keys()) {
+        for (const peerId of Array.from(peerConnections.keys())) {
             if (!peerIds.includes(peerId)) {
-                peerConnections.get(peerId).close();
+                cleanupPeer(peerId);
+                const pc = peerConnections.get(peerId);
+                if (pc) pc.close();
                 peerConnections.delete(peerId);
             }
         }
@@ -168,7 +202,7 @@ function updatePeerList(peerIds) {
         const pc = peerConnections.get(peerId);
         const status = pc && pc.connectionState === 'connected' ? '接続済み' : '接続中...';
         return `<div class="peer-item">
-                    <span>${peerId.substr(0, 15)}...</span>
+                    <span>${peerId.slice(0, 15)}...</span>
                     <span class="peer-status">${status}</span>
                 </div>`;
     }).join('');
@@ -190,7 +224,7 @@ async function createPeerConnection(peerId, initiator) {
         peerConnection.onicecandidate = (event) => {
             if (event.candidate) {
                 const candidateRef = ref(database, `iceCandidates/${localPeerId}/${peerId}`);
-                const candidateKey = Math.random().toString(36).substr(2);
+                const candidateKey = Math.random().toString(36).slice(2);
                 set(ref(database, `iceCandidates/${localPeerId}/${peerId}/${candidateKey}`), {
                     candidate: event.candidate.candidate,
                     sdpMLineIndex: event.candidate.sdpMLineIndex,
@@ -203,13 +237,34 @@ async function createPeerConnection(peerId, initiator) {
         // リモートストリームを受け取る
         peerConnection.ontrack = (event) => {
             console.log('リモートストリーム受信:', peerId);
-            // 音声は自動的に再生される
+            // audio 要素を作成して再生
+            let audioEl = remoteAudios.get(peerId);
+            if (!audioEl) {
+                audioEl = document.createElement('audio');
+                audioEl.autoplay = true;
+                audioEl.controls = false;
+                audioEl.style.display = 'none';
+                document.body.appendChild(audioEl);
+                remoteAudios.set(peerId, audioEl);
+            }
+            // 一般的には event.streams[0] に音声が含まれる
+            if (event.streams && event.streams[0]) {
+                audioEl.srcObject = event.streams[0];
+            }
         };
 
         // 接続状態の変化を監視
         peerConnection.onconnectionstatechange = () => {
             console.log(`ピア ${peerId} の接続状態: ${peerConnection.connectionState}`);
             updatePeerList(Array.from(peerConnections.keys()));
+            if (peerConnection.connectionState === 'disconnected' || peerConnection.connectionState === 'failed' || peerConnection.connectionState === 'closed') {
+                // 切断されたらクリーンアップ
+                cleanupPeer(peerId);
+                if (peerConnections.has(peerId)) {
+                    peerConnections.get(peerId).close();
+                    peerConnections.delete(peerId);
+                }
+            }
         };
 
         if (initiator) {
@@ -227,13 +282,10 @@ async function createPeerConnection(peerId, initiator) {
         const remoteOfferRef = ref(database, `offers/${peerId}/${localPeerId}`);
         onValue(remoteOfferRef, async (snapshot) => {
             const offerData = snapshot.val();
-            if (offerData && peerConnection.remoteDescription === null) {
+            if (offerData && (!peerConnection.remoteDescription || peerConnection.remoteDescription.type !== 'offer')) {
                 try {
                     await peerConnection.setRemoteDescription(
-                        new RTCSessionDescription({
-                            type: 'offer',
-                            sdp: offerData.sdp
-                        })
+                        { type: 'offer', sdp: offerData.sdp }
                     );
 
                     // Answer を作成して送信
@@ -254,13 +306,10 @@ async function createPeerConnection(peerId, initiator) {
         const remoteAnswerRef = ref(database, `answers/${peerId}/${localPeerId}`);
         onValue(remoteAnswerRef, async (snapshot) => {
             const answerData = snapshot.val();
-            if (answerData && peerConnection.remoteDescription === null) {
+            if (answerData && (!peerConnection.remoteDescription || peerConnection.remoteDescription.type !== 'answer')) {
                 try {
                     await peerConnection.setRemoteDescription(
-                        new RTCSessionDescription({
-                            type: 'answer',
-                            sdp: answerData.sdp
-                        })
+                        { type: 'answer', sdp: answerData.sdp }
                     );
                 } catch (error) {
                     console.error('Answer 処理エラー:', error);
@@ -276,17 +325,16 @@ async function createPeerConnection(peerId, initiator) {
                 const candidateData = candidates[candidateKey];
                 try {
                     await peerConnection.addIceCandidate(
-                        new RTCIceCandidate({
-                            candidate: candidateData.candidate,
-                            sdpMLineIndex: candidateData.sdpMLineIndex,
-                            sdpMid: candidateData.sdpMid
-                        })
+                        { candidate: candidateData.candidate, sdpMLineIndex: candidateData.sdpMLineIndex, sdpMid: candidateData.sdpMid }
                     );
                 } catch (error) {
                     console.error('ICE候補追加エラー:', error);
                 }
             }
         });
+
+        // リスナー参照を保持（終了時に off する）
+        peerListeners.set(peerId, [remoteOfferRef, remoteAnswerRef, remoteCandidatesRef]);
 
     } catch (error) {
         console.error('PeerConnection 作成エラー:', error);
@@ -295,9 +343,10 @@ async function createPeerConnection(peerId, initiator) {
 }
 
 // ページ離脱時に通話を終了
-window.addEventListener('beforeunload', async () => {
+window.addEventListener('beforeunload', () => {
     if (isCallActive) {
-        await endCall();
+        // 非同期処理は完了を保証できないため fire-and-forget
+        endCall();
     }
 });
 
