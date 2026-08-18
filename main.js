@@ -31,6 +31,8 @@ const iceCandidatesRef = ref(database, 'iceCandidates');
 const peerListeners = new Map();
 // マップ：リモート音声用の audio 要素
 const remoteAudios = new Map();
+// マップ：peerごとの ICE 候補バッファ
+const candidateBuffers = new Map();
 
 // WebRTC 設定
 const peerConnectionConfig = {
@@ -114,7 +116,7 @@ async function endCall() {
 
         // すべての PeerConnection を閉じる（および関連リスナー/オーディオをクリーンアップ）
         for (const peerId of Array.from(peerConnections.keys())) {
-            cleanupPeer(peerId);
+            resetPeerState(peerId);
             const pc = peerConnections.get(peerId);
             if (pc) pc.close();
             peerConnections.delete(peerId);
@@ -144,7 +146,7 @@ async function endCall() {
     }
 }
 
-function cleanupPeer(peerId) {
+function resetPeerState(peerId) {
     // オフライン/切断時に各種リスナーを解除
     const refs = peerListeners.get(peerId);
     if (refs) {
@@ -157,11 +159,16 @@ function cleanupPeer(peerId) {
     // リモートオーディオ要素を削除
     const audioEl = remoteAudios.get(peerId);
     if (audioEl) {
-        audioEl.pause();
-        audioEl.srcObject = null;
-        audioEl.remove();
+        try {
+            audioEl.pause();
+            audioEl.srcObject = null;
+            audioEl.remove();
+        } catch (e) { /* noop */ }
         remoteAudios.delete(peerId);
     }
+
+    // candidate バッファをクリア
+    if (candidateBuffers.has(peerId)) candidateBuffers.delete(peerId);
 }
 
 async function monitorPeers() {
@@ -181,7 +188,7 @@ async function monitorPeers() {
         // 削除されたピアの接続をクローズ
         for (const peerId of Array.from(peerConnections.keys())) {
             if (!peerIds.includes(peerId)) {
-                cleanupPeer(peerId);
+                resetPeerState(peerId);
                 const pc = peerConnections.get(peerId);
                 if (pc) pc.close();
                 peerConnections.delete(peerId);
@@ -261,7 +268,7 @@ async function createPeerConnection(peerId, initiator) {
             updatePeerList(Array.from(peerConnections.keys()));
             if (peerConnection.connectionState === 'disconnected' || peerConnection.connectionState === 'failed' || peerConnection.connectionState === 'closed') {
                 // 切断されたらクリーンアップ
-                cleanupPeer(peerId);
+                resetPeerState(peerId);
                 if (peerConnections.has(peerId)) {
                     peerConnections.get(peerId).close();
                     peerConnections.delete(peerId);
@@ -271,6 +278,13 @@ async function createPeerConnection(peerId, initiator) {
 
         if (initiator) {
             // Offer を作成して送信
+            // audio の m-line を事前に確保して m-line 順序を安定させる
+            try {
+                peerConnection.addTransceiver('audio', { direction: 'sendrecv' });
+            } catch (e) {
+                console.warn('addTransceiver failed:', e);
+            }
+
             const offer = await peerConnection.createOffer();
             await peerConnection.setLocalDescription(offer);
             await set(ref(database, `offers/${localPeerId}/${peerId}`), {
@@ -280,119 +294,4 @@ async function createPeerConnection(peerId, initiator) {
             });
         }
 
-        // リモートピアからの Offer を監視
-        const remoteOfferRef = ref(database, `offers/${peerId}/${localPeerId}`);
-        onValue(remoteOfferRef, async (snapshot) => {
-            const offerData = snapshot.val();
-            if (!offerData) return;
-
-            const state = peerConnection.signalingState;
-            // 普通のケース: stable -> setRemote + createAnswer
-            if (state === 'stable') {
-                try {
-                    await peerConnection.setRemoteDescription({ type: 'offer', sdp: offerData.sdp });
-                    const answer = await peerConnection.createAnswer();
-                    await peerConnection.setLocalDescription(answer);
-                    await set(ref(database, `answers/${localPeerId}/${peerId}`), {
-                        sdp: answer.sdp,
-                        type: 'answer',
-                        timestamp: Date.now()
-                    });
-                } catch (err) {
-                    console.error('Offer 処理エラー:', err);
-                }
-                return;
-            }
-
-            // glare: 自分が既にローカルオファーを出している場合
-            if (state === 'have-local-offer') {
-                // tie-breaker: localPeerId > peerId の一致したルールで決定
-                if (localPeerId > peerId) {
-                    // 自分のオファーを保持してリモートオファーを無視
-                    console.log('Glare detected: keeping local offer for', peerId);
-                    return;
-                } else {
-                    // 相手のオファーを受け入れる — rollback を試みる
-                    try {
-                        await peerConnection.setLocalDescription({ type: 'rollback' });
-                    } catch (e) {
-                        console.warn('Rollback unsupported or failed, recreating PeerConnection', e);
-                        // フォールバック: 現在の接続を破棄して再作成
-                        cleanupPeer(peerId);
-                        const pc = peerConnections.get(peerId);
-                        if (pc) {
-                            try { pc.close(); } catch (e) { /* noop */ }
-                            peerConnections.delete(peerId);
-                        }
-                        // 再作成して受け入れ側として処理
-                        await createPeerConnection(peerId, false);
-                        return;
-                    }
-                    try {
-                        await peerConnection.setRemoteDescription({ type: 'offer', sdp: offerData.sdp });
-                        const answer = await peerConnection.createAnswer();
-                        await peerConnection.setLocalDescription(answer);
-                        await set(ref(database, `answers/${localPeerId}/${peerId}`), {
-                            sdp: answer.sdp,
-                            type: 'answer',
-                            timestamp: Date.now()
-                        });
-                    } catch (err) {
-                        console.error('Glare Offer 処理エラー:', err);
-                    }
-                }
-            }
-        });
-
-        // リモートピアからの Answer を監視
-        const remoteAnswerRef = ref(database, `answers/${peerId}/${localPeerId}`);
-        onValue(remoteAnswerRef, async (snapshot) => {
-            const answerData = snapshot.val();
-            if (!answerData) return;
-            const state = peerConnection.signalingState;
-            if (state === 'have-local-offer' || state === 'have-local-pranswer') {
-                try {
-                    await peerConnection.setRemoteDescription({ type: 'answer', sdp: answerData.sdp });
-                } catch (err) {
-                    console.error('Answer 処理エラー:', err);
-                }
-            } else {
-                console.warn('Ignoring remote answer because signalingState is', state);
-            }
-        });
-
-        // リモートピアからの ICE候補を監視
-        const remoteCandidatesRef = ref(database, `iceCandidates/${peerId}/${localPeerId}`);
-        onValue(remoteCandidatesRef, async (snapshot) => {
-            const candidates = snapshot.val() || {};
-            for (const candidateKey in candidates) {
-                const candidateData = candidates[candidateKey];
-                try {
-                    await peerConnection.addIceCandidate(
-                        { candidate: candidateData.candidate, sdpMLineIndex: candidateData.sdpMLineIndex, sdpMid: candidateData.sdpMid }
-                    );
-                } catch (error) {
-                    console.error('ICE候補追加エラー:', error);
-                }
-            }
-        });
-
-        // リスナー参照を保持（終了時に off する）
-        peerListeners.set(peerId, [remoteOfferRef, remoteAnswerRef, remoteCandidatesRef]);
-
-    } catch (error) {
-        console.error('PeerConnection 作成エラー:', error);
-        updateStatus(`エラー: ${error.message}`, 'error');
-    }
-}
-
-// ページ離脱時に通話を終了
-window.addEventListener('beforeunload', () => {
-    if (isCallActive) {
-        // 非同期処理は完了を保証できないため fire-and-forget
-        endCall();
-    }
-});
-
-// 初期化完了
-updateStatus('準備完了。「通話開始」をクリック', 'normal');
+{
