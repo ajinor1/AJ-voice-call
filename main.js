@@ -1,5 +1,5 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.17.1/firebase-app.js";
-import { getDatabase, ref, set, get, remove, onValue, off } from "https://www.gstatic.com/firebasejs/12.17.1/firebase-database.js";
+import { getDatabase, ref, set, get, remove, onValue, off, onDisconnect } from "https://www.gstatic.com/firebasejs/12.17.1/firebase-database.js";
 
 // Firebase 設定
 const firebaseConfig = {
@@ -26,6 +26,10 @@ const peersRef = ref(database, 'peers');
 const offersRef = ref(database, 'offers');
 const answersRef = ref(database, 'answers');
 const iceCandidatesRef = ref(database, 'iceCandidates');
+// onDisconnect ハンドルと heartbeat
+let onDisconnectHandle = null;
+let heartbeatTimer = null;
+const PEER_TTL = 30_000; // 表示する最長寿命（ミリ秒）
 
 // マップ：各ピアに紐づくリスナー参照（後で off するため）
 const peerListeners = new Map();
@@ -81,12 +85,31 @@ async function startCall() {
         isCallActive = true;
         updateStatus('通話ルームに参加中...', 'connecting');
 
-        // Firebase に自分の情報を登録
-        await set(ref(database, `peers/${localPeerId}`), {
-            id: localPeerId,
-            timestamp: Date.now(),
-            status: 'active'
-        });
+// Firebase に自分の情報を登録（myPeerRef を作る）
+const myPeerRef = ref(database, `peers/${localPeerId}`);
+await set(myPeerRef, {
+  id: localPeerId,
+  timestamp: Date.now(),
+  status: 'active'
+});
+
+// onDisconnect で自動削除（タブ落ち／ブラウザ落ち対策）
+try {
+  onDisconnectHandle = onDisconnect(myPeerRef);
+  await onDisconnectHandle.remove();
+} catch (e) {
+  console.warn('onDisconnect setup failed', e);
+  onDisconnectHandle = null;
+}
+
+// heartbeat（定期的に timestamp を更新）
+heartbeatTimer = setInterval(() => {
+  set(myPeerRef, {
+    id: localPeerId,
+    timestamp: Date.now(),
+    status: 'active'
+  }).catch(e => console.warn('heartbeat failed', e));
+}, 10000); // 10秒ごと
 
         // 既存の参加者を監視
         monitorPeers();
@@ -119,7 +142,15 @@ async function endCall() {
             if (pc) pc.close();
             peerConnections.delete(peerId);
         }
-
+        // onDisconnect のキャンセルと heartbeat 停止
+        if (typeof onDisconnectHandle !== 'undefined' && onDisconnectHandle) {
+            try { await onDisconnectHandle.cancel(); } catch (e) { /* ignore */ }
+            onDisconnectHandle = null;
+        }
+        if (typeof heartbeatTimer !== 'undefined' && heartbeatTimer) {
+            clearInterval(heartbeatTimer);
+            heartbeatTimer = null;
+        }
         // Firebase から自分の情報を削除
         await remove(ref(database, `peers/${localPeerId}`));
         await remove(ref(database, `offers/${localPeerId}`));
@@ -167,7 +198,10 @@ function cleanupPeer(peerId) {
 async function monitorPeers() {
     onValue(peersRef, async (snapshot) => {
         const peers = snapshot.val() || {};
-        const peerIds = Object.keys(peers).filter(id => id !== localPeerId);
+        // 自分以外で、かつ最近更新されたピアだけ表示する（PEER_TTL を参照）
+        const peerIds = Object.entries(peers)
+          .filter(([id, data]) => id !== localPeerId && (Date.now() - (data.timestamp || 0) < PEER_TTL))
+          .map(([id]) => id);
 
         // 接続していない新しいピアに接続
         for (const peerId of peerIds) {
