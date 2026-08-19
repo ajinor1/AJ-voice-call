@@ -20,7 +20,7 @@ const database = getDatabase(app);
 // グローバル変数
 let localStream = null;
 let peerConnections = new Map();
-let localPeerId = generatePeerId();
+let localPeerId = null;
 let isCallActive = false;
 const peersRef = ref(database, 'peers');
 const offersRef = ref(database, 'offers');
@@ -83,6 +83,7 @@ async function startCall() {
         });
 
         isCallActive = true;
+        localPeerId = generatePeerId();
         updateStatus('通話ルームに参加中...', 'connecting');
 
 // Firebase に自分の情報を登録（myPeerRef を作る）
@@ -152,15 +153,18 @@ async function endCall() {
             heartbeatTimer = null;
         }
         // Firebase から自分の情報を削除
-        await remove(ref(database, `peers/${localPeerId}`));
-        await remove(ref(database, `offers/${localPeerId}`));
-        await remove(ref(database, `answers/${localPeerId}`));
-        await remove(ref(database, `iceCandidates/${localPeerId}`));
+        if (localPeerId) {
+            await remove(ref(database, `peers/${localPeerId}`));
+            await remove(ref(database, `offers/${localPeerId}`));
+            await remove(ref(database, `answers/${localPeerId}`));
+            await remove(ref(database, `iceCandidates/${localPeerId}`));
+        }
 
         // peersRef のリスナーを削除
         off(peersRef);
 
         isCallActive = false;
+        localPeerId = null;
 
         // UI 更新
         startBtn.disabled = false;
