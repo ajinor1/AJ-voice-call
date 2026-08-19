@@ -56,6 +56,36 @@
             color: #f44336;
         }
 
+        .name-field {
+            margin-bottom: 16px;
+            text-align: left;
+        }
+
+        .name-field label {
+            display: block;
+            font-size: 12px;
+            color: #666;
+            margin-bottom: 6px;
+        }
+
+        .name-field input {
+            width: 100%;
+            padding: 12px 14px;
+            font-size: 14px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            outline: none;
+        }
+
+        .name-field input:focus {
+            border-color: #667eea;
+        }
+
+        .name-field input:disabled {
+            background: #f5f5f5;
+            color: #888;
+        }
+
         .controls {
             display: flex;
             gap: 12px;
@@ -173,6 +203,11 @@
     <div class="container">
         <h1>AJ Voice Call</h1>
         <div class="status" id="status">初期化中...</div>
+
+        <div class="name-field">
+            <label for="displayName">表示名</label>
+            <input type="text" id="displayName" maxlength="20" placeholder="名前を入力" autocomplete="nickname">
+        </div>
 
         <div class="controls">
             <button class="btn-primary" id="startBtn">通話開始</button>

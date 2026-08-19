@@ -21,7 +21,9 @@ const database = getDatabase(app);
 let localStream = null;
 let peerConnections = new Map();
 let localPeerId = null;
+let localDisplayName = '';
 let isCallActive = false;
+const peerNames = new Map();
 const peersRef = ref(database, 'peers');
 const offersRef = ref(database, 'offers');
 const answersRef = ref(database, 'answers');
@@ -49,12 +51,35 @@ const startBtn = document.getElementById('startBtn');
 const endBtn = document.getElementById('endBtn');
 const peerListEl = document.getElementById('peerList');
 const peersEl = document.getElementById('peers');
+const displayNameInput = document.getElementById('displayName');
 
 // イベントリスナー
 startBtn.addEventListener('click', startCall);
 endBtn.addEventListener('click', endCall);
+displayNameInput.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' && !startBtn.disabled) {
+        startCall();
+    }
+});
 
 // ユーティリティ
+function normalizeDisplayName(raw) {
+    return String(raw || '')
+        .replace(/[\u0000-\u001F\u007F]/g, '')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 20);
+}
+
+function peerRecord() {
+    return {
+        id: localPeerId,
+        name: localDisplayName,
+        timestamp: Date.now(),
+        status: 'active'
+    };
+}
+
 function generatePeerId() {
     if (typeof crypto !== 'undefined' && crypto.randomUUID) {
         return 'peer_' + crypto.randomUUID();
@@ -70,6 +95,15 @@ function updateStatus(message, type = 'normal') {
 
 async function startCall() {
     try {
+        const name = normalizeDisplayName(displayNameInput.value);
+        if (!name) {
+            updateStatus('参加する前に表示名を入力してください', 'error');
+            displayNameInput.focus();
+            return;
+        }
+        localDisplayName = name;
+        displayNameInput.value = name;
+
         updateStatus('マイクへのアクセスを許可してください...', 'connecting');
 
         // マイクストリーム取得
@@ -88,11 +122,7 @@ async function startCall() {
 
 // Firebase に自分の情報を登録（myPeerRef を作る）
 const myPeerRef = ref(database, `peers/${localPeerId}`);
-await set(myPeerRef, {
-  id: localPeerId,
-  timestamp: Date.now(),
-  status: 'active'
-});
+await set(myPeerRef, peerRecord());
 
 // onDisconnect で自動削除（タブ落ち／ブラウザ落ち対策）
 try {
@@ -105,11 +135,7 @@ try {
 
 // heartbeat（定期的に timestamp を更新）
 heartbeatTimer = setInterval(() => {
-  set(myPeerRef, {
-    id: localPeerId,
-    timestamp: Date.now(),
-    status: 'active'
-  }).catch(e => console.warn('heartbeat failed', e));
+  set(myPeerRef, peerRecord()).catch(e => console.warn('heartbeat failed', e));
 }, 10000); // 10秒ごと
 
         // 既存の参加者を監視
@@ -118,10 +144,13 @@ heartbeatTimer = setInterval(() => {
         // UI 更新
         startBtn.disabled = true;
         endBtn.disabled = false;
+        displayNameInput.disabled = true;
         updateStatus('通話待機中...接続を待っています', 'connected');
 
     } catch (error) {
         console.error('エラー:', error);
+        localDisplayName = '';
+        displayNameInput.disabled = false;
         updateStatus(`エラー: ${error.message}`, 'error');
     }
 }
@@ -171,10 +200,13 @@ async function endCall() {
         }
 
         localPeerId = null;
+        localDisplayName = '';
+        peerNames.clear();
 
         // UI 更新
         startBtn.disabled = false;
         endBtn.disabled = true;
+        displayNameInput.disabled = false;
         peerListEl.style.display = 'none';
         peersEl.innerHTML = '';
         updateStatus('通話を終了しました', 'normal');
@@ -217,7 +249,10 @@ async function monitorPeers() {
         // 自分以外で、かつ最近更新されたピアだけ表示する（PEER_TTL を参照）
         const peerIds = Object.entries(peers)
           .filter(([id, data]) => id !== localPeerId && (Date.now() - (data.timestamp || 0) < PEER_TTL))
-          .map(([id]) => id);
+          .map(([id, data]) => {
+            peerNames.set(id, normalizeDisplayName(data && data.name) || id.slice(0, 8));
+            return id;
+          });
 
         // 接続していない新しいピアに接続
         for (const peerId of peerIds) {
@@ -236,6 +271,7 @@ async function monitorPeers() {
                 const pc = peerConnections.get(peerId);
                 if (pc) pc.close();
                 peerConnections.delete(peerId);
+                peerNames.delete(peerId);
             }
         }
 
@@ -247,18 +283,25 @@ async function monitorPeers() {
 function updatePeerList(peerIds) {
     if (peerIds.length === 0) {
         peerListEl.style.display = 'none';
+        peersEl.replaceChildren();
         return;
     }
 
     peerListEl.style.display = 'block';
-    peersEl.innerHTML = peerIds.map(peerId => {
+    peersEl.replaceChildren();
+    for (const peerId of peerIds) {
         const pc = peerConnections.get(peerId);
         const status = pc && pc.connectionState === 'connected' ? '接続済み' : '接続中...';
-        return `<div class="peer-item">
-                    <span>${peerId.slice(0, 15)}...</span>
-                    <span class="peer-status">${status}</span>
-                </div>`;
-    }).join('');
+        const item = document.createElement('div');
+        item.className = 'peer-item';
+        const nameEl = document.createElement('span');
+        nameEl.textContent = peerNames.get(peerId) || peerId.slice(0, 8);
+        const connectionStatusEl = document.createElement('span');
+        connectionStatusEl.className = 'peer-status';
+        connectionStatusEl.textContent = status;
+        item.append(nameEl, connectionStatusEl);
+        peersEl.appendChild(item);
+    }
 }
 
 async function createPeerConnection(peerId, initiator) {
